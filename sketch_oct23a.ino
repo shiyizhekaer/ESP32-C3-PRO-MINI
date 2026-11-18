@@ -10,7 +10,13 @@
 #include <time.h>
 #include <U8g2_for_Adafruit_GFX.h>
 #include <esp_wifi.h>
-#define CURRENT_VERSION "1.0.0"
+#include <esp32FOTA.hpp> // 🔔 引入 OTA 库
+
+// ---------------- OTA 配置 ----------------
+#define CURRENT_VERSION "1.0.1" // 每次发布新固件时，记得在这里和 version.json 里同步修改
+const char* MANIFEST_URL = "https://github.com/shiyizhekaer/ESP32-C3-PRO-MINI/releases/latest/download/version.json";
+// 实例化 FOTA 对象
+esp32FOTA fota("esp32-fota-http", CURRENT_VERSION, false, false);
 
 // ---------------- 屏幕引脚定义 ----------------
 #define EPD_SCK  7
@@ -52,6 +58,7 @@ String currentCity = "定位中...";
 bool locationFetched = false;
 
 unsigned long lastWiFiCheck = 0; 
+unsigned long lastFotaCheck = 0; // 🔔 OTA 检查计时器
 
 // ---------------- 农历算法常量与函数 ----------------
 const int yearInfo[] = {
@@ -129,20 +136,18 @@ void drawSetupScreen(String msg);
 void drawConnectingScreen(); 
 void configModeCallback(WiFiManager *myWiFiManager); 
 
-// wttr.in WWO 代码 → WMO 代码（供 drawWeatherIcon 复用）
 int wwoToWmo(int wwo) {
-  if (wwo == 113) return 0;                                             // 晴
-  if (wwo == 116 || wwo == 119 || wwo == 122) return 2;                  // 多云/局部多云
-  if (wwo == 143 || wwo == 248 || wwo == 260) return 3;                  // 阴/雾
+  if (wwo == 113) return 0;
+  if (wwo == 116 || wwo == 119 || wwo == 122) return 2;
+  if (wwo == 143 || wwo == 248 || wwo == 260) return 3;
   if ((wwo >= 176 && wwo <= 185) || (wwo >= 263 && wwo <= 284) ||
-      (wwo >= 293 && wwo <= 311) || (wwo >= 353 && wwo <= 359)) return 60; // 雨
+      (wwo >= 293 && wwo <= 311) || (wwo >= 353 && wwo <= 359)) return 60;
   if ((wwo >= 179 && wwo <= 182) || (wwo >= 227 && wwo <= 230) ||
-      (wwo >= 317 && wwo <= 338) || (wwo >= 368 && wwo <= 377)) return 73; // 雪
-  if (wwo >= 386 && wwo <= 395) return 95;                                // 雷暴
-  return 3;                                                               // 默认阴
+      (wwo >= 317 && wwo <= 338) || (wwo >= 368 && wwo <= 377)) return 73;
+  if (wwo >= 386 && wwo <= 395) return 95;
+  return 3;
 }
 
-// 🔔 新增：WWO 代码 → 本地中文映射，彻底解决英文显示问题
 String getWwoTextCN(int wwo) {
   if (wwo == 113) return "晴";
   if (wwo == 116) return "多云";
@@ -200,6 +205,9 @@ void setup() {
   connectWiFi_WebPortal();
 
   if (wifiConnected) {
+    // 设置 OTA 更新检查地址
+    fota.setManifestURL(MANIFEST_URL);
+
     esp_err_t pwr_err = esp_wifi_set_max_tx_power(34);  // 8.5dBm
     Serial.printf("set_max_tx_power(8.5dBm) -> %s\n",
                   pwr_err == ESP_OK ? "OK" : esp_err_to_name(pwr_err));
@@ -244,6 +252,34 @@ void loop() {
   }
 
   checkWiFi();
+
+  // 🔔 OTA 定时检查逻辑 (目前设为每 1 小时检查一次，方便测试，可改为 24 * 60 * 60 * 1000UL)
+  if (wifiConnected && (millis() - lastFotaCheck > 1 * 60 * 60 * 1000UL || lastFotaCheck == 0)) {
+    lastFotaCheck = millis();
+    Serial.println("正在检查云端固件更新...");
+    
+    // execHTTPcheck() 返回 true 表示发现了新版本
+    if (fota.execHTTPcheck()) {
+      Serial.println("发现新版本，开始下载并更新！请勿断电...");
+      
+      // 更新前，可以把屏幕显示清空并提示更新中
+      display.setFullWindow();
+      display.firstPage();
+      do {
+        display.fillScreen(GxEPD_WHITE);
+        u8g2Fonts.setFont(u8g2_font_wqy16_t_gb2312);
+        u8g2Fonts.setCursor(20, 50);
+        u8g2Fonts.print("发现新固件，正在更新中...");
+        u8g2Fonts.setCursor(20, 80);
+        u8g2Fonts.print("请勿断电！");
+      } while (display.nextPage());
+      
+      // 开始下载并刷写固件，下载完毕后设备会自动重启
+      fota.execOTA(); 
+    } else {
+      Serial.println("当前已是最新版本。");
+    }
+  }
 
   struct tm timeinfo;
   if (getLocalTime(&timeinfo)) {
@@ -356,6 +392,12 @@ void drawConnectingScreen() {
     u8g2Fonts.print("系统启动，正在连接网络...");
     u8g2Fonts.setCursor(20, 130);
     u8g2Fonts.print("请稍候...");
+    
+    // 👇 🔔 把测试文字加在这里 👇
+    u8g2Fonts.setCursor(20, 160);
+    u8g2Fonts.print("NEW V1.0.1"); 
+    // 👆 ---------------------- 👆
+
   } while (display.nextPage());
   display.hibernate();
 }
@@ -386,7 +428,6 @@ void checkWiFi() {
   }
 }
 
-// wttr.in 天气 + NTP + 室内传感器
 void fetchWeatherAndTime() {
   configTime(8 * 3600, 0, "ntp.aliyun.com", "ntp1.aliyun.com");
 
@@ -426,18 +467,15 @@ void fetchWeatherAndTime() {
         int wwoCode = cur["weatherCode"].as<int>();
         currentWeatherCode = wwoToWmo(wwoCode);
 
-        // 🔔 使用本地映射获取中文天气描述，不再依赖服务器翻译
         weatherText = getWwoTextCN(wwoCode);
 
         Serial.printf("🌤 天气 OK: %.1f°C, %.0f%%, WWO=%d → WMO=%d, text=%s\n",
                       outTemp, outHum, wwoCode, currentWeatherCode, weatherText.c_str());
       } else {
         Serial.println("❌ wttr.in JSON 中 current_condition 缺失");
-        Serial.println("Payload 前 200 字符: " + payload.substring(0, 200));
       }
     } else {
       Serial.printf("❌ 天气 JSON 解析失败: %s\n", err.c_str());
-      Serial.println("Payload 前 200 字符: " + payload.substring(0, 200));
     }
   } else {
     Serial.printf("❌ 天气 HTTP 失败, code=%d\n", httpCode);
@@ -539,13 +577,12 @@ void drawFullUI() {
     bool isNight = (currentHour >= 18 || currentHour < 6);
     drawWeatherIcon(40, 200, currentWeatherCode, isNight); 
     
-    // 动态计算天气文字宽度，避免与城市名重叠
     u8g2Fonts.setFont(u8g2_font_wqy16_t_gb2312);
     u8g2Fonts.setCursor(65, 207); 
     u8g2Fonts.print(weatherText);
 
     int weatherW = u8g2Fonts.getUTF8Width(weatherText.c_str());
-    u8g2Fonts.setCursor(65 + weatherW + 4, 207); // +4 留一点间距
+    u8g2Fonts.setCursor(65 + weatherW + 4, 207); 
     u8g2Fonts.print("(" + currentCity + ")");
     
     u8g2Fonts.setFont(u8g2_font_wqy16_t_gb2312);
