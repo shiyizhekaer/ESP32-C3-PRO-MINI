@@ -7,6 +7,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 🔔 关键：授予写入权限，才能创建 Release 和上传附件
+
+    steps:
+      # ... 其他步骤保持不变 ...
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
