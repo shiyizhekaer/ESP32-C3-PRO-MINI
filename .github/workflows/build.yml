@@ -2,16 +2,14 @@ name: Build and Release Firmware
 
 on:
   release:
-    types: [created] # 当你在网页上发布 Release 时触发编译
+    types: [created]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # 🔔 关键：授予写入权限，才能创建 Release 和上传附件
+      contents: write # 🔔 关键：允许向仓库写入数据（创建 Release 和上传固件）
 
-    steps:
-      # ... 其他步骤保持不变 ...
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
