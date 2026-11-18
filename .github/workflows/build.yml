@@ -1,0 +1,45 @@
+name: Build and Release Firmware
+
+on:
+  release:
+    types: [created] # 当你在网页上发布 Release 时触发编译
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core
+        run: |
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+      - name: Install Libraries
+        run: |
+          arduino-cli lib install "GxEPD2"
+          arduino-cli lib install "WiFiManager"
+          arduino-cli lib install "ArduinoJson"
+          arduino-cli lib install "U8g2_for_Adafruit_GFX"
+          arduino-cli lib install "Adafruit AHTX0"
+          arduino-cli lib install "esp32FOTA"
+
+      - name: Compile Sketch
+        run: |
+          # 指定 C3 芯片、4MB Flash、min_spiffs 分区
+          arduino-cli compile --fqbn esp32:esp32:esp32c3:FlashSize=4M,PartitionScheme=min_spiffs --output-dir ./build .
+
+      - name: Rename firmware
+        run: |
+          mv ./build/*.ino.bin ./firmware.bin
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./firmware.bin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
