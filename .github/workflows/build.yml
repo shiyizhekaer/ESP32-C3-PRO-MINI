@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 🔔 关键：允许向仓库写入数据（创建 Release 和上传固件）
+      contents: write
 
     steps:
       - name: Checkout code
@@ -33,18 +33,17 @@ jobs:
 
       - name: Compile Sketch
         run: |
-          # 指定 C3 芯片、4MB Flash、min_spiffs 分区
           arduino-cli compile --fqbn esp32:esp32:esp32c3:FlashSize=4M,PartitionScheme=min_spiffs --output-dir ./build .
 
       - name: Rename firmware
         run: |
           mv ./build/*.ino.bin ./firmware.bin
 
-           - name: Upload Release Asset
+      - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ./firmware.bin
-            ./version.json  # 🔔 新增：把 version.json 也一起上传到 Release 附件
+            ./version.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
