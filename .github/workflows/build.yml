@@ -40,9 +40,11 @@ jobs:
         run: |
           mv ./build/*.ino.bin ./firmware.bin
 
-      - name: Upload Release Asset
+           - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: ./firmware.bin
+          files: |
+            ./firmware.bin
+            ./version.json  # 🔔 新增：把 version.json 也一起上传到 Release 附件
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
