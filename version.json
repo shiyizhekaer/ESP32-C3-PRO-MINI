@@ -1,0 +1,5 @@
+{
+  "type": "esp32-fota-http",
+  "version": "1.0.0",
+  "url": "https://github.com/shiyizhekaer/ESP32-C3-PRO-MINI/releases/latest/download/firmware.bin"
+}
